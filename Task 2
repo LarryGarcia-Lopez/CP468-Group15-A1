@@ -1,1 +1,126 @@
+import numpy as np
+import heapq
+from math import sqrt
+import random
 
+# Define the state of the 15-puzzle
+class PuzzleState:
+    def __init__(self, board, moves=0, prev=None):
+        self.board = np.array(board)  # 2D array representing the puzzle
+        self.moves = moves  # Count of moves taken to reach this state
+        self.prev = prev  # Reference to the previous state
+        self.empty = tuple(zip(*np.where(self.board == 0)))[0]  # Locate the empty space
+        self.size = len(board[0])  # Dimensions of the puzzle (4x4 for the 15-puzzle)
+        # Goal state is a sorted 2D array with the last element as 0 (empty space)
+        self.goal = np.arange(1, self.size**2 + 1).reshape((self.size, self.size))
+        self.goal[self.size - 1, self.size - 1] = 0
+
+    def is_goal(self):
+        # Check if current state is the goal state
+        return np.array_equal(self.board, self.goal)
+
+    def move(self, direction):
+        # Move the empty space in the specified direction if possible
+        x, y = self.empty
+        directions = {'up': (-1, 0), 'down': (1, 0), 'left': (0, -1), 'right': (0, 1)}
+        dx, dy = directions.get(direction, (0, 0))
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < self.size and 0 <= ny < self.size:
+            new_board = np.copy(self.board)
+            new_board[x, y], new_board[nx, ny] = new_board[nx, ny], new_board[x, y]
+            return PuzzleState(new_board, self.moves + 1, self)
+        return None
+
+    def successors(self):
+        # Generate all possible states from current state
+        for direction in ['up', 'down', 'left', 'right']:
+            neighbor = self.move(direction)
+            if neighbor:
+                yield neighbor
+
+    def __lt__(self, other):
+        # Comparison function for priority queue
+        return self.board.tostring() < other.board.tostring()
+
+    def __eq__(self, other):
+        # Equality check to support node revisits
+        return np.array_equal(self.board, other.board)
+
+    def __hash__(self):
+        # Hash function for closed set
+        return hash(self.board.tostring())
+
+# Same heuristic functions as in Task 1
+def misplaced_tiles(state):
+    """ Count the number of tiles not in their goal position """
+    return np.sum(state.board != state.goal) - (1 if 0 in state.board else 0)
+
+def manhattan_distance(state):
+    """ Sum of the Manhattan distances of the tiles from their goal positions """
+    distance = 0
+    for i in range(state.size):
+        for j in range(state.size):
+            if state.board[i, j] != 0:
+                goal_x, goal_y = divmod(state.board[i, j] - 1, state.size)
+                distance += abs(goal_x - i) + abs(goal_y - j)
+    return distance
+
+def euclidean_distance(state):
+    """ Calculate the straight-line distance from each tile to its goal position """
+    distance = 0
+    for i in range(state.size):
+        for j in range(state.size):
+            if state.board[i, j] != 0:
+                goal_x, goal_y = divmod(state.board[i, j] - 1, state.size)
+                distance += sqrt((goal_x - i) ** 2 + (goal_y - j) ** 2)
+    return distance
+
+def a_star_search(initial_state, heuristic):
+    """ A* search algorithm implementation """
+    open_list = []
+    closed_set = set()
+    heapq.heappush(open_list, (heuristic(initial_state), 0, initial_state))
+    while open_list:
+        _, cost, current = heapq.heappop(open_list)
+        if current.is_goal():
+            return current.moves, cost
+        if current not in closed_set:
+            closed_set.add(current)
+            for neighbor in current.successors():
+                if neighbor not in closed_set:
+                    heapq.heappush(open_list, (neighbor.moves + heuristic(neighbor), neighbor.moves, neighbor))
+    return None, None
+
+# Generate a random state from the goal state by making a series of valid moves
+def generate_random_state(start_state, moves=50):
+    current_state = start_state
+    for _ in range(moves):
+        current_state = random.choice(list(current_state.successors()))
+    return current_state
+
+# Initialize the goal state for the 15-puzzle
+goal_state = PuzzleState(np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 0]]))
+
+# Generate 100 random states
+random_states = [generate_random_state(goal_state, moves=50) for _ in range(100)]
+
+# Run A* search on each generated state for each heuristic and collect results
+results = {
+    'h1': {'steps': [], 'nodes_expanded': []},
+    'h2': {'steps': [], 'nodes_expanded': []},
+    'h3': {'steps': [], 'nodes_expanded': []}
+}
+for state in random_states:
+    for heuristic_name, heuristic_func in zip(['h1', 'h2', 'h3'], [misplaced_tiles, manhattan_distance, euclidean_distance]):
+        steps, nodes_expanded = a_star_search(state, heuristic_func)
+        if steps is not None and nodes_expanded is not None:
+            results[heuristic_name]['steps'].append(steps)
+            results[heuristic_name]['nodes_expanded'].append(nodes_expanded)
+
+# Calculate and display average results
+average_results = []
+for heuristic_name in ['h1', 'h2', 'h3']:
+    avg_steps = sum(results[heuristic_name]['steps']) / len(results[heuristic_name]['steps'])
+    avg_nodes = sum(results[heuristic_name]['nodes_expanded']) / len(results[heuristic_name]['nodes_expanded'])
+    average_results.append((heuristic_name, avg_steps, avg_nodes))
+print(average_results)
